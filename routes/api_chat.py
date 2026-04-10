@@ -49,23 +49,33 @@ def chatbot():
         
         if 'price' in msg or 'cost' in msg:
             for p in products:
-                if p.p_name.lower() in msg or p.category.lower() in msg:
-                    return jsonify({'success': True, 'response': f'The price of {p.p_name} is ₹{p.price}.'}), 200
-            return jsonify({'success': True, 'response': 'Please specify which product you want the price for.'}), 200
+                # Check if any main word from product name is in the user's message
+                name_words = p.p_name.lower().split()
+                if any(word in msg for word in name_words if len(word) > 2) or p.category.lower() in msg:
+                    return jsonify({'success': True, 'response': f'The price of {p.p_name} is ₹{p.price}. (Discount: {p.discount}%)'}), 200
+            return jsonify({'success': True, 'response': 'Please specify which product you want the price for (e.g. iPhone, Samsung, MacBook).'}), 200
             
         elif 'warranty' in msg:
             for p in products:
-                if p.p_name.lower() in msg or p.category.lower() in msg:
-                    return jsonify({'success': True, 'response': f'{p.p_name} comes with a {p.warranty}.'}), 200
+                name_words = p.p_name.lower().split()
+                if any(word in msg for word in name_words if len(word) > 2) or p.category.lower() in msg:
+                    return jsonify({'success': True, 'response': f'The {p.p_name} comes with a {p.warranty}.'}), 200
             return jsonify({'success': True, 'response': 'Please specify which product you need warranty details for.'}), 200
             
-        elif 'features' in msg or 'specs' in msg:
+        elif 'features' in msg or 'specs' in msg or 'what is' in msg:
             for p in products:
-                if p.p_name.lower() in msg or p.category.lower() in msg:
+                name_words = p.p_name.lower().split()
+                if any(word in msg for word in name_words if len(word) > 2) or p.category.lower() in msg:
                     return jsonify({'success': True, 'response': f'Features of {p.p_name}: {p.features}.'}), 200
             return jsonify({'success': True, 'response': 'Please specify which product you need features for.'}), 200
             
-        elif 'products' in msg or 'buy' in msg:
-            return jsonify({'success': True, 'response': 'We have Smartphones, Laptops, Tablets, and Accessories. Please browse our Products page!'}), 200
+        elif 'products' in msg or 'buy' in msg or 'have' in msg:
+            return jsonify({'success': True, 'response': 'We currently have Smartphones, Laptops, Tablets, and Accessories. Please browse our Products page to see the catalog!'}), 200
             
-        return jsonify({'success': True, 'response': 'I am currently experiencing technical difficulties connecting to my AI brain, but I can still answer basic questions about product prices, features, and warranties. Try asking "What is the price of iPhone?"'}), 200
+        # Catch just the product name being mentioned without a specific intent
+        for p in products:
+            name_words = p.p_name.lower().split()
+            if any(word in msg for word in name_words if len(word) > 2) or p.category.lower() in msg:
+                return jsonify({'success': True, 'response': f'{p.p_name} is available for ₹{p.price}. Features include: {p.features}. Warranty: {p.warranty}.'}), 200
+
+        return jsonify({'success': True, 'response': 'I am currently operating in offline mode. I can answer questions about Prices, Features, and Warranties. Try asking "What is the price of iPhone?" or "What are the features of MacBook?"'}), 200

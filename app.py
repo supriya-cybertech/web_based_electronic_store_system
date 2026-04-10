@@ -6,7 +6,7 @@ import os
 
 def create_app():
     # Provide the template and static folder pointers exactly as before
-    app = Flask(__name__, template_folder='../frontend/templates', static_folder='../frontend/static')
+    app = Flask(__name__, template_folder='templates', static_folder='static')
     app.config.from_object(Config)
 
     # Initialize extensions
@@ -86,8 +86,9 @@ def create_app():
 
     return app
 
+app = create_app()
+
 if __name__ == '__main__':
-    app = create_app()
     port = int(os.environ.get("PORT", 5000))
     host = os.environ.get("HOST", "0.0.0.0")
     debug = os.environ.get("DEBUG", "True").lower() == "true"
