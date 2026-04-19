@@ -1,11 +1,13 @@
 import os
 import json
 import jwt
-import mysql.connector
-from mysql.connector import Error
 from datetime import datetime, timedelta
-from twilio.rest import Client as TwilioClient
 from dotenv import load_dotenv
+from twilio.rest import Client as TwilioClient
+
+from extensions import db
+from models import Product, Order, User, OrderItem
+from sqlalchemy import or_
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
@@ -21,18 +23,6 @@ JWT_SECRET = os.environ.get("JWT_SECRET", "change_me_in_prod")
 JWT_ALGO = "HS256"
 JWT_EXPIRY_HOURS = 24
 
-# ── Database Setup ────────────────────────────────────────────────────────────
-DB_CONFIG = {
-    "host":     os.environ.get("DB_HOST", "switchyard.proxy.rlwy.net"),
-    "user":     os.environ.get("DB_USER", "root"),
-    "password": os.environ.get("DB_PASSWORD", "uxnLFmmHCnLVblKklWKEGxJFrcgqxUcu"),
-    "database": os.environ.get("DB_NAME", "railway"),
-    "port":     int(os.environ.get("DB_PORT", 26497)),
-}
-
-def _db():
-    return mysql.connector.connect(**DB_CONFIG)
-
 # ── Gemini Setup ──────────────────────────────────────────────────────────────
 import google.generativeai as genai
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
@@ -43,34 +33,36 @@ genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 
 def tool_search_products(query="", category="", max_results=5):
     """Search products from database"""
-    conn = _db()
-    cur = conn.cursor(dictionary=True)
     try:
         placeholder = "cat_placeholder_%"
-        sql = "SELECT product_id, p_name, price, discount, stock, features, warranty, category FROM PRODUCT WHERE p_name NOT LIKE %s"
-        params = [placeholder]
+        query_obj = Product.query.filter(~Product.p_name.like(placeholder))
 
         if category:
-            sql += " AND category = %s"
-            params.append(category)
+            query_obj = query_obj.filter_by(category=category)
         if query:
-            sql += " AND (p_name LIKE %s OR features LIKE %s)"
-            params += [f"%{query}%", f"%{query}%"]
+            query_obj = query_obj.filter(or_(Product.p_name.like(f"%{query}%"), Product.features.like(f"%{query}%")))
 
-        sql += f" LIMIT {int(max_results)}"
-        cur.execute(sql, params)
-        products = cur.fetchall()
-
-        for p in products:
-            disc = p.get("discount") or 0
-            p["effective_price"] = round(p["price"] * (1 - disc / 100), 2)
+        products_data = query_obj.limit(int(max_results)).all()
+        
+        products = []
+        for p in products_data:
+            disc = float(p.discount) if p.discount else 0
+            price = float(p.price)
+            products.append({
+                "product_id": p.product_id,
+                "p_name": p.p_name,
+                "price": price,
+                "discount": disc,
+                "stock": p.stock,
+                "features": p.features,
+                "warranty": p.warranty,
+                "category": p.category,
+                "effective_price": round(price * (1 - disc / 100), 2)
+            })
 
         return {"products": products, "count": len(products)}
-    except Error as e:
+    except Exception as e:
         return {"error": str(e)}
-    finally:
-        cur.close()
-        conn.close()
 
 
 def tool_get_order_status(order_id=None, user_email=None, verified_user_id=None):
@@ -78,68 +70,43 @@ def tool_get_order_status(order_id=None, user_email=None, verified_user_id=None)
     if not verified_user_id:
         return {"error": "Please login first to view order details."}
 
-    conn = _db()
-    cur = conn.cursor(dictionary=True)
     try:
+        orders_query = Order.query.filter_by(user_id=verified_user_id)
         if order_id:
-            cur.execute("""
-                SELECT o.order_id, o.order_date, o.total_amount,
-                       u.username, u.email,
-                       GROUP_CONCAT(p.p_name SEPARATOR ', ') AS items,
-                       IFNULL(o.status, 'Processing') AS status
-                FROM ORDERS o
-                JOIN USER u ON o.user_id = u.user_id
-                LEFT JOIN ORDER_ITEM oi ON oi.order_id = o.order_id
-                LEFT JOIN PRODUCT p ON p.product_id = oi.product_id
-                WHERE o.order_id = %s AND o.user_id = %s
-                GROUP BY o.order_id
-            """, (order_id, verified_user_id))
+            orders_query = orders_query.filter_by(order_id=order_id)
         elif user_email:
-            cur.execute("""
-                SELECT o.order_id, o.order_date, o.total_amount,
-                       u.username, u.email,
-                       GROUP_CONCAT(p.p_name SEPARATOR ', ') AS items,
-                       IFNULL(o.status, 'Processing') AS status
-                FROM ORDERS o
-                JOIN USER u ON o.user_id = u.user_id
-                LEFT JOIN ORDER_ITEM oi ON oi.order_id = o.order_id
-                LEFT JOIN PRODUCT p ON p.product_id = oi.product_id
-                WHERE u.email = %s AND o.user_id = %s
-                GROUP BY o.order_id
-                ORDER BY o.order_date DESC LIMIT 5
-            """, (user_email, verified_user_id))
+            orders_query = orders_query.join(User).filter(User.email == user_email).order_by(Order.order_date.desc()).limit(5)
         else:
             return {"error": "Please provide order ID or email."}
 
-        orders = cur.fetchall()
-        for o in orders:
-            if isinstance(o.get("order_date"), datetime):
-                o["order_date"] = o["order_date"].isoformat()
+        orders_data = orders_query.all()
+        
+        orders = []
+        for o in orders_data:
+            item_names = ", ".join([item.product.p_name for item in o.items])
+            orders.append({
+                "order_id": o.order_id,
+                "order_date": o.order_date.isoformat() if isinstance(o.order_date, datetime) else o.order_date,
+                "total_amount": float(o.total_amount),
+                "username": o.user.username,
+                "email": o.user.email,
+                "items": item_names,
+                "status": o.status or 'Processing'
+            })
+
         return {"orders": orders, "count": len(orders)}
-    except Error as e:
+    except Exception as e:
         return {"error": str(e)}
-    finally:
-        cur.close()
-        conn.close()
 
 
 def tool_get_categories():
     """Get all product categories"""
-    conn = _db()
-    cur = conn.cursor()
     try:
-        cur.execute("""
-            SELECT DISTINCT category FROM PRODUCT
-            WHERE p_name NOT LIKE 'cat_placeholder_%'
-            ORDER BY category
-        """)
-        cats = [r[0] for r in cur.fetchall()]
+        categories = db.session.query(Product.category).filter(~Product.p_name.like('cat_placeholder_%')).distinct().order_by(Product.category).all()
+        cats = [c[0] for c in categories if c[0]]
         return {"categories": cats}
-    except Error as e:
+    except Exception as e:
         return {"error": str(e)}
-    finally:
-        cur.close()
-        conn.close()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -299,18 +266,15 @@ def send_whatsapp_message(to_number, message):
 
 def notify_order_status_change(order_id, new_status):
     """Send WhatsApp notification when order status changes"""
-    conn = _db()
-    cur = conn.cursor(dictionary=True)
     try:
-        cur.execute("""
-            SELECT u.username, u.phone, u.email, o.total_amount
-            FROM ORDERS o
-            JOIN USER u ON u.user_id = o.user_id
-            WHERE o.order_id = %s
-        """, (order_id,))
-        row = cur.fetchone()
+        order = Order.query.get(order_id)
+        if not order or not order.user or type(order.user).__name__ == "Admin": # Added check for user object
+            print(f"[WhatsApp] No order or user found for order {order_id}")
+            return False
+            
+        user = order.user
 
-        if not row or not row.get("phone"):
+        if not hasattr(user, 'phone') or not user.phone: # No phone field in user model yet
             print(f"[WhatsApp] No phone number found for order {order_id}")
             return False
 
@@ -322,20 +286,17 @@ def notify_order_status_change(order_id, new_status):
         }.get(new_status, "📦")
 
         msg = (
-            f"Hello {row['username']}! {status_emoji}\n\n"
+            f"Hello {user.username}! {status_emoji}\n\n"
             f"Your order #{order_id} has been updated!\n"
             f"Status: *{new_status}*\n"
-            f"Total: ₹{row['total_amount']}\n\n"
+            f"Total: ₹{float(order.total_amount):.2f}\n\n"
             f"Visit our website for more details.\n"
             f"Thank you for shopping with TechMart! 😊"
         )
-        return send_whatsapp_message(row["phone"], msg)
-    except Error as e:
+        return send_whatsapp_message(user.phone, msg)
+    except Exception as e:
         print(f"[WhatsApp DB Error]: {e}")
         return False
-    finally:
-        cur.close()
-        conn.close()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -418,73 +379,45 @@ def _twiml_reply(message):
 </Response>"""
 def get_smart_recommendations(user_id=None):
     """Get personalized or trending product recommendations"""
-    conn = get_db_connection()
-    if not conn:
-        return []
-    
-    cursor = conn.cursor(dictionary=True)
     try:
         if user_id:
             # Recommend based on previous orders or cart items if any
-            cursor.execute("""
-                SELECT p.* FROM PRODUCT p
-                WHERE p.category IN (
-                    SELECT DISTINCT p2.category 
-                    FROM ORDER_ITEM oi 
-                    JOIN PRODUCT p2 ON oi.product_id = p2.product_id
-                    JOIN ORDERS o ON oi.order_id = o.order_id
-                    WHERE o.user_id = %s
-                )
-                ORDER BY p.price DESC LIMIT 3
-            """, (user_id,))
-            recs = cursor.fetchall()
-            if recs: return recs
+            categories = db.session.query(Product.category).join(OrderItem).join(Order).filter(Order.user_id == user_id).distinct().all()
+            cats = [c[0] for c in categories if c[0]]
+            
+            if cats:
+                recs = Product.query.filter(Product.category.in_(cats)).order_by(Product.price.desc()).limit(3).all()
+                if recs: 
+                    return [{"product_id": r.product_id, "p_name": r.p_name, "price": float(r.price), "image": r.image, "category": r.category} for r in recs]
 
-        # Fallback to trending (highest stock/price as proxy for featured)
-        cursor.execute("SELECT * FROM PRODUCT ORDER BY price DESC LIMIT 3")
-        return cursor.fetchall()
-    finally:
-        cursor.close()
-        conn.close()
+        # Fallback to trending
+        recs = Product.query.order_by(Product.price.desc()).limit(3).all()
+        return [{"product_id": r.product_id, "p_name": r.p_name, "price": float(r.price), "image": r.image, "category": r.category} for r in recs]
+    except Exception as e:
+        print(e)
+        return []
 
 def send_whatsapp_invoice(order_id):
     """Generate and send an invoice via WhatsApp"""
-    conn = get_db_connection()
-    if not conn: return
-    
-    cursor = conn.cursor(dictionary=True)
     try:
-        cursor.execute("""
-            SELECT o.order_id, o.total_amount, u.username, u.user_id
-            FROM ORDERS o JOIN USER u ON o.user_id = u.user_id
-            WHERE o.order_id = %s
-        """, (order_id,))
-        order = cursor.fetchone()
-        
-        if not order: return
-        
-        cursor.execute("""
-            SELECT oi.quantity, p.p_name, p.price
-            FROM ORDER_ITEM oi JOIN PRODUCT p ON oi.product_id = p.product_id
-            WHERE oi.order_id = %s
-        """, (order_id,))
-        items = cursor.fetchall()
+        order = Order.query.get(order_id)
+        if not order: return False
         
         # Build message
         msg = f"🧾 *INVOICE: TechMart Electronics*\n\n"
-        msg += f"Order ID: {order['order_id']}\n"
-        msg += f"Customer: {order['username']}\n"
+        msg += f"Order ID: {order.order_id}\n"
+        msg += f"Customer: {order.user.username}\n"
         msg += f"---------------------------\n"
-        for item in items:
-            msg += f"• {item['p_name']} x{item['quantity']} - ₹{item['price']}\n"
+        for item in order.items:
+            msg += f"• {item.product.p_name} x{item.quantity} - ₹{float(item.product.price):.2f}\n"
         msg += f"---------------------------\n"
-        msg += f"Total: ₹{order['total_amount']}\n\n"
+        msg += f"Total: ₹{float(order.total_amount):.2f}\n\n"
         msg += "Thank you for shopping with us!"
         
         # In a real app, user phone would be in DB. Using a dummy for now.
         dummy_phone = "whatsapp:+910000000000" 
         send_whatsapp_message(dummy_phone, msg)
         return True
-    finally:
-        cursor.close()
-        conn.close()
+    except Exception as e:
+        print(f"Error in send_whatsapp_invoice: {e}")
+        return False

@@ -17,6 +17,13 @@ class Config:
         DB_PORT = os.environ.get('DB_PORT', '26497')
         DB_NAME = os.environ.get('DB_NAME', 'railway')
         SQLALCHEMY_DATABASE_URI = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    elif DB_TYPE == 'postgres' or DB_TYPE == 'supabase':
+        DB_USER = os.environ.get('DB_USER', 'postgres')
+        DB_PASSWORD = os.environ.get('DB_PASSWORD', '')
+        DB_HOST = os.environ.get('DB_HOST', '')
+        DB_PORT = os.environ.get('DB_PORT', '5432')
+        DB_NAME = os.environ.get('DB_NAME', 'postgres')
+        SQLALCHEMY_DATABASE_URI = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     else:
         DB_NAME = os.environ.get('DB_NAME', 'local_store.db')
         SQLALCHEMY_DATABASE_URI = f"sqlite:///{DB_NAME}"

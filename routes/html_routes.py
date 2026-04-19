@@ -72,33 +72,3 @@ def generate_bill(order_id):
     except Exception as e:
         return str(e), 500
 
-@html_bp.route('/api/_internal/setup_images')
-def setup_images():
-    import os, shutil
-    artifact_dir = r"C:\Users\iamsu\.gemini\antigravity\brain\5c923a4b-e1e8-4a7b-be42-af7c7c29a6b6"
-    dest_dir = r"C:\Users\iamsu\Downloads\web_based_electronic_store_system-main\web_based_electronic_store_system-main\code\frontend\static\images"
-    
-    os.makedirs(dest_dir, exist_ok=True)
-    
-    images = [
-        ("iphone_product_1775641613151.png", "iphone.png"),
-        ("samsung_product_1775641628662.png", "samsung.png"),
-        ("macbook_product_1775642095141.png", "macbook.png"),
-        ("ipad_product_1775641653943.png", "ipad.png"),
-        ("headphones_product_1775641669614.png", "headphones.png")
-    ]
-    
-    successes = []
-    try:
-        for src, dest in images:
-            src_path = os.path.join(artifact_dir, src)
-            dest_path = os.path.join(dest_dir, dest)
-            if os.path.exists(src_path):
-                shutil.copy2(src_path, dest_path)
-                successes.append(f"Copied {dest}")
-            else:
-                successes.append(f"Missing {src}")
-    except Exception as e:
-        return f"Error: {e}"
-        
-    return f"Done: {', '.join(successes)}"

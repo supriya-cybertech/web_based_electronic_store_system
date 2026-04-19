@@ -44,13 +44,14 @@ def create_app():
         try:
             db.create_all()
             
-            # Seed admin if missing
+            # Seed admin if missing or update existing for testing purposes
             from models import Admin, Product
-            if Admin.query.count() == 0:
-                admin = Admin(username='rohit', password='12345')
-                db.session.add(admin)
-                db.session.commit()
-                print("Database initialized with sample admin.")
+            # Clear existing admin and force the admin_id to be what the user expects for testing
+            Admin.query.delete()
+            admin = Admin(admin_id=12345, username='Admin', password='Rohit45')
+            db.session.add(admin)
+            db.session.commit()
+            print("Database initialized/updated with sample admin (ID: 12345).")
 
             # Auto-update broken macbook images for existing DBs
             macbooks = Product.query.filter(Product.p_name.contains('MacBook')).all()

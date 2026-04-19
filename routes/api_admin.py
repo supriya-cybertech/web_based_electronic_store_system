@@ -130,6 +130,9 @@ def edit_product():
             product.stock = data.get('stock')
             product.features = data.get('features')
             product.warranty = data.get('warranty')
+            # Fix: Update image dynamically when making changes
+            if data.get('image'):
+                product.image = data.get('image')
             db.session.commit()
             return jsonify({'success': True, 'message': 'Product updated successfully'}), 200
         return jsonify({'success': False, 'message': 'Product not found'}), 404

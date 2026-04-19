@@ -206,8 +206,9 @@ function openEditProductModal(productId, product) {
     document.getElementById('editPrice').value = product.price;
     document.getElementById('editDiscount').value = product.discount || 0;
     document.getElementById('editStock').value = product.stock;
-    document.getElementById('editFeatures').value = product.features;
-    document.getElementById('editWarranty').value = product.warranty;
+    document.getElementById('editFeatures').value = product.features || '';
+    document.getElementById('editWarranty').value = product.warranty || '';
+    document.getElementById('editImage').value = product.image || '';
 
     const editProductModal = document.getElementById('editProductModal');
     if (editProductModal) {
@@ -233,7 +234,8 @@ async function handleEditProduct(e) {
         discount: parseFloat(document.getElementById('editDiscount').value) || 0,
         stock: parseInt(document.getElementById('editStock').value),
         features: document.getElementById('editFeatures').value,
-        warranty: document.getElementById('editWarranty').value
+        warranty: document.getElementById('editWarranty').value,
+        image: document.getElementById('editImage').value
     };
 
     const result = await makeRequest('/api/edit_product', 'POST', product);
@@ -502,6 +504,17 @@ function displayProductsForEdit(products) {
 
     products.forEach(product => {
         const row = document.createElement('tr');
+        
+        const img = document.createElement('img');
+        img.src = getImageUrl(product.image || product.category_image);
+        img.style.width = '40px';
+        img.style.height = '40px';
+        img.style.objectFit = 'cover';
+        img.style.borderRadius = '4px';
+
+        const imgCell = document.createElement('td');
+        imgCell.appendChild(img);
+
         // Create the HTML content with proper escaping
         const editButton = document.createElement('button');
         editButton.className = 'btn btn-secondary btn-action';
@@ -514,7 +527,8 @@ function displayProductsForEdit(products) {
             product.discount || 0,
             product.stock,
             product.features,
-            product.warranty
+            product.warranty,
+            product.image
         );
 
         const deleteButton = document.createElement('button');
@@ -531,7 +545,8 @@ function displayProductsForEdit(products) {
         actionsCell.appendChild(editButton);
         actionsCell.appendChild(deleteButton);
 
-        row.innerHTML = `
+        row.appendChild(imgCell);
+        row.innerHTML += `
             <td>${product.product_id}</td>
             <td>${product.p_name}</td>
             <td>₹${parseFloat(product.price).toFixed(2)}</td>
@@ -543,8 +558,11 @@ function displayProductsForEdit(products) {
     });
 }
 
-function editProduct(id, name, price, discount, stock, features, warranty) {
-    openEditProductModal(id, { p_name: name, price: price, discount: discount, stock: stock, features: features, warranty: warranty });
+function editProduct(id, name, price, discount, stock, features, warranty, image) {
+    openEditProductModal(id, { 
+        p_name: name, price: price, discount: discount, stock: stock, 
+        features: features, warranty: warranty, image: image 
+    });
 }
 
 async function deleteProduct(productId) {

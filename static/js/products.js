@@ -1,5 +1,6 @@
 // Products page functionality
 
+
 let products = [];
 let allProducts = new Map();
 let categories = [];

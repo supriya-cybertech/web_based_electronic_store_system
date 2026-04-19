@@ -6,8 +6,6 @@ from ai_controller import (
     handle_whatsapp_webhook,
     notify_order_status_change,
 )
-import mysql.connector
-from mysql.connector import Error
 import os
 
 # Store web chat conversations in memory
@@ -98,34 +96,24 @@ def register_ai_routes(app):
         order_id = data.get("order_id")
         new_status = data.get("status", "").strip()
 
-        VALID_STATUSES = {"Processing", "Shipped", "Delivered", "Cancelled"}
+        VALID_STATUSES = {"Pending", "Processing", "Shipped", "On the way", "Out for delivery", "Delivered", "Return Requested", "Returned", "Cancelled"}
         if not order_id or new_status not in VALID_STATUSES:
             return jsonify({
                 "success": False,
                 "message": f"Provide order_id and status. Valid: {VALID_STATUSES}",
             }), 400
 
-        # Update database
-        db_config = {
-            "host":     os.environ.get("DB_HOST", "switchyard.proxy.rlwy.net"),
-            "user":     os.environ.get("DB_USER", "root"),
-            "password": os.environ.get("DB_PASSWORD", "uxnLFmmHCnLVblKklWKEGxJFrcgqxUcu"),
-            "database": os.environ.get("DB_NAME", "railway"),
-            "port":     int(os.environ.get("DB_PORT", 26497)),
-        }
-        conn = mysql.connector.connect(**db_config)
-        cur = conn.cursor()
+        from models import Order
+        from extensions import db
         try:
-            cur.execute(
-                "UPDATE ORDERS SET status = %s WHERE order_id = %s",
-                (new_status, order_id),
-            )
-            conn.commit()
-        except Error as e:
+            order = Order.query.get(order_id)
+            if not order:
+                return jsonify({"success": False, "message": "Order not found"}), 404
+            order.status = new_status
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
             return jsonify({"success": False, "message": str(e)}), 500
-        finally:
-            cur.close()
-            conn.close()
 
         # Send WhatsApp notification
         wa_sent = notify_order_status_change(order_id, new_status)
