@@ -12,10 +12,13 @@ from sqlalchemy import or_
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 # ── Twilio Setup ──────────────────────────────────────────────────────────────
-twilio_client = TwilioClient(
-    os.environ.get("TWILIO_ACCOUNT_SID"),
-    os.environ.get("TWILIO_AUTH_TOKEN"),
-)
+twilio_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+twilio_token = os.environ.get("TWILIO_AUTH_TOKEN")
+
+if twilio_sid and twilio_token and "your_twilio_sid_here" not in twilio_sid:
+    twilio_client = TwilioClient(twilio_sid, twilio_token)
+else:
+    twilio_client = None
 TWILIO_WHATSAPP_FROM = os.environ.get("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
 
 # ── JWT Setup ─────────────────────────────────────────────────────────────────
@@ -252,6 +255,10 @@ def verify_jwt(token):
 
 def send_whatsapp_message(to_number, message):
     """Send WhatsApp message via Twilio"""
+    if not twilio_client:
+        print(f"[WhatsApp Bypass] Twilio not configured. Would have sent: {message}")
+        return False
+        
     try:
         twilio_client.messages.create(
             from_=TWILIO_WHATSAPP_FROM,
